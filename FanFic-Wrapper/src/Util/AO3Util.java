@@ -12,12 +12,19 @@ public class AO3Util {
 	public static final String URL = "https://archiveofourown.org";
 	public static final String WORKS = "https://archiveofourown.org/works/";
 	
-	public static Document getBaseHTML(int workIndex) {
+	/**
+	 * 
+	 * @param workIndex
+	 * @return -> An array of Documents, the first being the original page, the second is the basic html document;
+	 */
+	public static Document[] getBaseHTML(int workIndex) {
 		URL url = null;
 	    InputStream is = null;
-
+	    Document original = null;
+	    
         try {
-			url = new URL(Jsoup.connect(WORKS + workIndex).get().baseUri());
+        	original = Jsoup.connect(WORKS + workIndex).get();
+			url = new URL(original.baseUri());
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		}
@@ -32,7 +39,6 @@ public class AO3Util {
 		
 		try {
 			document = Jsoup.parse(is, "UTF-8", url.toString());
-			
 			if(document.select("body").text().equals("You are being redirected.")) {
 				is.close();
 				
@@ -54,6 +60,6 @@ public class AO3Util {
 			e.printStackTrace();
 		}
 		
-		return document;
+		return new Document[] { original, document };
 	}
 }

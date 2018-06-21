@@ -1,90 +1,51 @@
 package AO3;
 
-import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Currency;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map.Entry;
 
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import Util.AO3Util;
 import Util.Util;
 
 public class AO3Work {
-	public static enum Rating {
-		Unrated("Not Rated", 0), General("General Audiences", 1), Teen("Teen And Up Audiences", 2), M("Mature", 3), E("Explicit", 4);
+	public static enum Property {
+		Rating("Rating"),
+		ArchiveWarning("Archive Warning"),
+		Category("Category"),
+		Fandom("Fandom"),
+		Relationship("Relationship"),
+		Character("Character"), 
+		AdditionalTags("Additional Tags"),
+		Series("Series"),
+		Collections("Collections"),
+		Title("Title"),
+		Language("Language"),
+		Author("Author");
 		
 		private String name;
-		private int index;
-		private Rating(String name, int index) {
-			this.name = name;
-			this.index = index;
-		}
-		
-		public static Rating parse(String string) {
-			for(Rating r : values())
-				if(r.toString().equals(string))
-					return r;
-			return Unrated;
-		}
-		
-		public String toString() { return name; }
-		public int getIndex() { return index; }
-	}
-	
-	public static enum Warning {
-		None("Creator Chose Not To Use Archive Warnings"), Graphic("Graphic Depictions Of Violence"), 
-		MajorDeath("Major Character Death"), 
-		NoApply("No Archive Warnings Apply"), RapeNonCon("Rape/Non-Con"), Underage("Underage");
-		
-		private String name;
-		private Warning(String name) {
+		private Property(String name) {
 			this.name = name;
 		}
 		
-		public static Warning parse(String string) {
-			for(Warning w : values())
-				if(w.toString().equals(string))
-					return w;
-			return None;
+		public String toString() {
+			return name;
 		}
 		
-		public String toString() { return name; }
-		public String getName() { return name; }
+		public static Property parse(String name) {
+			for(Property p : values()) 
+				if(p.name.equals(name))
+					return p;
+			return null;
+		}
 	}
 	
-	public static enum Catagories {
-		FF("F/F", 0), FM("F/M", 1), Gen("Gen", 2), MM("M/M", 3), Multi("Multi", 4), Other("Other", 5);
-		
-		private String name;
-		private int index;
-		private Catagories(String name, int index) {
-			this.name = name;
-			this.index = index;
-		}
-		
-		public static Catagories parse(String string) {
-			for(Catagories c : values())
-				if(c.toString().equals(string))
-					return c;
-			return Other;
-		}
-		
-		public int getIndex() { return index; }
-		public String toString() { return name; }
-		public String getName() { return name; }
-	}
+	private HashMap<Property, String[]> properties;
 	
-	private Rating rating;
-	private String title, language, author;
-	
-	private ArrayList<Catagories> catagories;
-	private ArrayList<Warning> warnings;
-	private ArrayList<AO3Tag> fandoms, relationships, characters, additionalTags;
-	
-	private Date published, current;
+	private Date published, updated, completed;
 	private boolean complete, oneShot;
 	private int updatedChapter, totalChapterCount;
 	private long words;
@@ -95,81 +56,92 @@ public class AO3Work {
 	public AO3Work(int workIndex) { 
 		this.workIndex = workIndex; 
 		
-		catagories = new ArrayList<>();
-		warnings = new ArrayList<>();
-		fandoms = new ArrayList<>();
-		relationships = new ArrayList<>();
-		characters = new ArrayList<>();
-		additionalTags = new ArrayList<>();
+		properties = new HashMap<>();
 		
-		Document document = AO3Util.getBaseHTML(workIndex);
-		Elements tagElements = document.select("dl.tags");
+		Document[] documents = AO3Util.getBaseHTML(workIndex);
+		Document originalDocument = documents[0];
+		
+		//the basic html file holds all of the more complicated information, but does not include the basic info on comments and hits
+		//However, this is easy to retrieve from the original page, unlike the other information about ao3 works
+		Elements originalStats = originalDocument.select("dl");
+		properties.put(Property.Language, new String[] { originalStats.select("dd.language").text() });
+		comments = Integer.parseInt(originalStats.select("dd.comments").text());
+		kudos = Integer.parseInt(originalStats.select("dd.kudos").text());
+		bookmarks = Integer.parseInt(originalStats.select("dd.bookmarks").text());
+		hits = Integer.parseInt(originalStats.select("dd.hits").text());
+		
+		Document htmldocument = documents[1];
+		
+		Elements tagElements = htmldocument.select("dl.tags");
 		Elements labels = tagElements.select("dt");
 		Elements values = tagElements.select("dd");
 
 		//Stats are special
 		for(int i = 0; i < labels.size() - 1; i++) {
-			System.out.println(labels.get(i).text());
-			System.out.println(values.get(i).text());
+			String label = labels.get(i).text();
+			label = label.substring(0, label.length() - 1);
+			
+			Elements words = values.get(i).select("a");
+			
+			String[] tempValues = new String[words.size()];
+			for(int j = 0; j < tempValues.length; j++) 
+				tempValues[j] = words.get(j).text();
+			
+			properties.put(Property.parse(label), tempValues);
 		}
 		
-		System.out.println("----");
+		//Stats
+		String[] stats = values.get(values.size() - 1).text().split(" ");
+		for(int i = 0; i < stats.length; i++) {
+			if(stats[i].equals("Updated:")) 
+				updated = Util.parseDate(stats[i + 1]);
+			else if(stats[i].equals("Completed:"))
+				completed = Util.parseDate(stats[i + 1]);
+		    else if(stats[i].equals("Published:"))
+				published = Util.parseDate(stats[i + 1]);
+			else if(stats[i].equals("Words:")) 
+				words = Integer.parseInt(stats[i + 1]);
+			else if(stats[i].equals("Chapters:")) {
+				String[] parts = stats[i + 1].split("/");
+				updatedChapter = Util.parseInt(parts[0]);
+				totalChapterCount = Util.parseInt(parts[1]);
+				
+				oneShot = totalChapterCount == 1;
+				complete = totalChapterCount == updatedChapter;
+			}
+		}
+		
+		if(totalChapterCount == 0 && updatedChapter == 0) {//HTML one shot doesn't list the chapter counts
+			totalChapterCount = 1;
+			updatedChapter = 1;
+			
+			oneShot = true;
+			complete = true;
+		}
+		
+		properties.put(Property.Title, new String[] { htmldocument.select("h1").text() });
+		properties.put(Property.Author, new String[] { htmldocument.select("a[rel=author]").text() });
+		
+		for(Entry<Property, String[]> entry : properties.entrySet()) {
+			System.out.println("---------");
+			System.out.println(entry.getKey());
+			for(String s : entry.getValue())
+				System.out.print(s + ", ");
+			System.out.println();
+		}
+		System.out.println();
+		
+		System.out.println("Updated: " + updated);
+		System.out.println("Published: " + published);
+		System.out.println("Completed: " + completed);
+		System.out.println("Complete: " + complete);
+		System.out.println("One Shot: " + oneShot);
+		System.out.println("Current Chapter Count: " + updatedChapter);
+		System.out.println("Totle Chapter Count: " + totalChapterCount);
+		System.out.println("Word Count: " + words);
+		System.out.println("Comments: " + comments);
+		System.out.println("Kudos: " + kudos);
+		System.out.println("Bookmarks: " + bookmarks);
+		System.out.println("Hits: " + hits);
 	}
-	
-	public String toString() { 
-		StringBuilder tags = new StringBuilder();
-
-		tags.append("\nRating: " + rating);
-		
-		for(Warning temp : warnings) 
-			tags.append("\nWarning: " + temp);
-		
-		for(Catagories temp : catagories) 
-			tags.append("\nCatagory: " + temp);
-		
-		for(AO3Tag temp : relationships) 
-			tags.append("\nRelationship: " + temp);
-		
-		for(AO3Tag temp : characters) 
-			tags.append("\nCharacter: " + temp);
-		
-		for(AO3Tag temp : additionalTags) 
-			tags.append("\nAdditional Tag: " + temp);
-		
-		return "Title: " + title + 
-				"\nAuthor: " + author +
-				tags.toString() + 
-				"\nLanguage: " + language + "\nWords: " + words + 
-				"\nCurrent Updated Chapter: " + updatedChapter + 
-				"\nTotal Chapters: " + totalChapterCount + 
-				"\nComment Count: " + comments + 
-				"\nKudos: " + kudos + 
-				"\nBookmarks: " + bookmarks +
-				"\nHits: " + hits +
-				"\nCompleted: " + complete +
-				"\nOne Shot: " + oneShot;
-	}
-	
-	public Date getPublished() { return published; }
-	public Date getCurrent() { return current; }
-	public int getUpdatedChapter() { return updatedChapter; }
-	public int getTotalChapterCount() { return totalChapterCount; }
-	public long getWords() { return words; }
-	public int getComments() { return comments; }
-	public int getKudos() { return kudos; }
-	public int getBookmarks() { return bookmarks; }
-	public int getHits() { return hits; }
-
-	public Rating getRating() { return rating; }
-	public String getAuthor() { return author; }
-	public String getTitle() { return title; }
-	public String getLanguage() { return language; }
-	public ArrayList<Catagories> getCatagories() { return catagories; }
-	public ArrayList<Warning> getWarnings() { return warnings; }
-	public ArrayList<AO3Tag> getFandoms() { return fandoms; }
-	public ArrayList<AO3Tag> getCharacters() { return characters; }
-	public ArrayList<AO3Tag> getAdditionalTags() { return additionalTags; }
-	public boolean isComplete() { return complete; }
-	public boolean isOneShot() { return oneShot; }
-	public long getWorkIndex() { return workIndex; }
 }
